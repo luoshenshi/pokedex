@@ -1,0 +1,17 @@
+{
+  "name": "pokédex",
+  "version": "1.0.0",
+  "description": "An extremely advanced Pokédex",
+  "main": "pokedex.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "pokemon"
+  ],
+  "author": "luoshenshi",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.3"
+  }
+}
