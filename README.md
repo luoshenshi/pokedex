@@ -7,7 +7,7 @@ This API provides comprehensive information about Pokémon, making it perfect fo
 To install the Pokédex API, use npm:
 
 ```bash
-npm install pokédex
+npm install real-pokedex
 ```
 
 ## Usage
@@ -15,7 +15,7 @@ npm install pokédex
 You can use the Pokédex API to retrieve information about a specific Pokémon. Here's an example in `nodejs`:
 
 ```javascript
-const { pokedex } = require("pokédex");
+const { pokedex } = require("real-pokedex");
 
 pokedex("emolga", (res) => {
   console.log(res);
@@ -25,7 +25,7 @@ pokedex("emolga", (res) => {
 Alternatively, you can also use the Pokédex API to look up a Pokémon by its Pokédex number:
 
 ```javascript
-const { pokedex } = require("pokédex");
+const { pokedex } = require("real-pokedex");
 
 pokedex("244", (res) => {
   console.log(res);
