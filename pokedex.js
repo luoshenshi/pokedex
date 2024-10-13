@@ -1,3 +1,4 @@
+const axios = require("axios").default;
 
 async function pokedex(pokemonName, callback) {
   let name = pokemonName.toLowerCase();
