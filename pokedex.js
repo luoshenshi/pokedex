@@ -1,82 +1,133 @@
 const axios = require("axios").default;
 
+const cache = new Map();
+
+async function fetchWithCache(url) {
+  if (cache.has(url)) return cache.get(url);
+  const response = await axios.get(url);
+  cache.set(url, response.data);
+  return response.data;
+}
+
 async function pokedex(pokemonName, callback) {
-  let name = pokemonName.toLowerCase();
+  const name = pokemonName.toLowerCase();
 
   try {
-    let response = await axios.get(`https://pokeapi.co/api/v2/pokemon/${name}`);
-    let data = response.data;
+    const response = await axios.get(
+      `https://pokeapi.co/api/v2/pokemon/${name}`
+    );
+    const data = response.data;
 
-    let pokemon = {
+    const pokemon = {
       name: data.name,
       ID: data.id,
       types: data.types.map((e) => e.type.name),
-      abilities: data.abilities.map((e) => e.ability.name),
+      base_experience: data.base_experience,
       stats: data.stats,
       pokemonPic: data.sprites.other["official-artwork"].front_default,
-      height:
-        Math.floor((10 * data.height) / 2.54 / 12) +
-        "' " +
-        Math.round(((10 * data.height) / 2.54) % 12) +
-        '"',
-      weight:
-        (2.20462 * parseInt(data.weight.toString().slice(0, -1))).toFixed(1) +
-        " lbs",
+      height: `${Math.floor((data.height * 3.937) / 12)}' ${Math.round(
+        (data.height * 3.937) % 12
+      )}"`,
+      weight: `${((data.weight / 10) * 2.20462).toFixed(1)} lbs`,
       moves: data.moves.map((e) => e.move.name),
+      shiny_sprite: data.sprites.front_shiny,
+      held_items: data.held_items,
     };
 
-    let speciesResponse = await axios.get(data.species.url);
-    pokemon.isLegendary = speciesResponse.data.is_legendary;
-    pokemon.category = speciesResponse.data.genera
+    // Fetch abilities
+    const abilityRequests = data.abilities.map((e) =>
+      fetchWithCache(`https://pokeapi.co/api/v2/ability/${e.ability.name}`)
+    );
+    const abilityResponses = await Promise.all(abilityRequests);
+    const abilities = abilityResponses.map((response) => {
+      const englishEntries = response.effect_entries.filter(
+        (entry) => entry.language.name === "en"
+      );
+      return {
+        name: response.name,
+        description: englishEntries.map((entry) => entry.effect).join(" "),
+        shorter_description: englishEntries
+          .map((entry) => entry.short_effect)
+          .join(" "),
+      };
+    });
+    pokemon.abilities = abilities;
+
+    // Fetch species details
+    const speciesResponse = await fetchWithCache(data.species.url);
+    pokemon.isLegendary = speciesResponse.is_legendary;
+    pokemon.base_happiness = speciesResponse.base_happiness;
+    pokemon.habitat = speciesResponse.habitat
+      ? speciesResponse.habitat.name
+      : "Unknown";
+    pokemon.shape = speciesResponse.shape.name;
+    pokemon.category = speciesResponse.genera
       .find((e) => "en" === e.language.name)
       .genus.replace("Pokémon", "");
+    pokemon.catch_rate = speciesResponse.capture_rate;
+    pokemon.flavor_text_entries = speciesResponse.flavor_text_entries
+      .filter((flavor_text_entry) => flavor_text_entry.language.name === "en")
+      .map((flavor_text_entry) => ({
+        flavor_text: flavor_text_entry.flavor_text,
+        version: flavor_text_entry.version.name,
+      }));
     pokemon.genders =
-      speciesResponse.data.gender_rate == -1 ? "Unknown" : "Male, Female";
+      speciesResponse.gender_rate === -1 ? "Unknown" : "Male, Female";
+    pokemon.egg_groups = speciesResponse.egg_groups.map((e) => e.name);
+    pokemon.color = speciesResponse.color.name;
 
-    let evolutionResponse = await axios.get(
-      speciesResponse.data.evolution_chain.url
+    // Fetch evolution chain
+    const evolutionResponse = await fetchWithCache(
+      speciesResponse.evolution_chain.url
     );
-    let chain = evolutionResponse.data.chain;
-    let evolutionChain = [];
-
-    function getEvolution(a) {
-      if (a) {
-        evolutionChain.push({
-          species_name: a.species.name,
-          evolution_details: a.evolution_details,
-        });
-        for (let i = 0; i < a.evolves_to.length; i++)
-          getEvolution(a.evolves_to[i]);
-      }
+    const evolutionChain = [];
+    let current = evolutionResponse.chain;
+    while (current) {
+      const evolutionDetails = current.evolution_details[0] || {};
+      evolutionChain.push({
+        species_name: current.species.name,
+        min_level: evolutionDetails.min_level || "N/A",
+        trigger: evolutionDetails.trigger
+          ? evolutionDetails.trigger.name
+          : "Starter",
+      });
+      current = current.evolves_to[0] || null;
     }
 
-    getEvolution(chain);
+    const evolutionPics = evolutionChain.map((evolution) => {
+      const id = evolution.species_name.split("/").filter(Boolean).pop(); // Extract ID
+      return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`;
+    });
     pokemon.evolutionChain = evolutionChain;
-
-    let evolutionPics = await Promise.all(
-      evolutionChain.map(async (e) => {
-        let a = `https://pokeapi.co/api/v2/pokemon/${e.species_name}`;
-        let t = await axios
-          .get(a)
-          .then((e) => e.data.sprites.other["official-artwork"].front_default);
-        return t;
-      })
-    );
-
     pokemon.evolutionPics = evolutionPics;
 
-    let weakness = await Promise.all(
-      pokemon.types.map(async (e) => {
-        let a = await axios.get(`https://pokeapi.co/api/v2/type/${e}`);
-        return a.data.damage_relations.double_damage_from.map((e) => e.name);
+    // Fetch varieties
+    const pokemonVariants = await Promise.all(
+      speciesResponse.varieties.map(async (variety) => {
+        const varietyData = await fetchWithCache(variety.pokemon.url);
+        return {
+          name: variety.pokemon.name,
+          id: varietyData.id,
+          sprite: varietyData.sprites.other["official-artwork"].front_default,
+        };
       })
     );
+    pokemon.varieties = pokemonVariants;
 
-    pokemon.weakness = weakness;
+    // Fetch weaknesses
+    const typeRequests = pokemon.types.map((type) =>
+      fetchWithCache(`https://pokeapi.co/api/v2/type/${type}`)
+    );
+    const typeResponses = await Promise.all(typeRequests);
+    const weaknesses = typeResponses.map(
+      (response) => response.damage_relations
+    );
+    pokemon.weakness = weaknesses;
 
     callback(pokemon);
   } catch (error) {
-    console.error(error.response.statusText);
+    console.error(error);
+    callback(null, error);
   }
 }
 
